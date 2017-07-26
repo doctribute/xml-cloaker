@@ -1,29 +1,53 @@
-/* 
- * Copyright (c) 2016-present Jan Tošovský <jan.tosovsky.cz@gmail.com>
+/*
+ * Copyright 2016-present doctribute (http://doctribute.com/)
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * Contributors:
+ * Jan Tosovsky
  */
-
 package org.doctribute.xml;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.Map.Entry;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class Cloaker {
+/**
+ * A Java class for escaping DTD, entities, XIncludes and other XML content
+ * which need to be preserved, in certain scenarios, during XSLT transformation.
+ * <p>
+ * When XML document is parsed, several irreversible changes are applied, namely
+ * <ul>
+ * <li>all referenced entities are replaced with their values</li>
+ * <li>all referenced content (XML includes) is merged</li>
+ * <li>all default DTD attribute values are injected</li>
+ * </ul>
+ * <p>
+ * If the purpose of particular XSLT transformation is to modify the source XML,
+ * e.g. alter the structure, update attribute values or insert comments, it is
+ * not desired to touch the rest of the content.
+ * <p>
+ * In these scenarios it is handy to cloak the XML first, perform the
+ * transformation and finally uncloak the content back.
+ *
+ * @version 1.0.0
+ */
+public final class Cloaker {
 
     private static final String COMMENT = "DO NOT REMOVE THIS COMMENT! This is a 'cloaked' document";
     private static final String REGEX_DTD_INTERNAL = "<!(DOCTYPE[^>]*\\[[^]]*\\]\\s*)>";
@@ -33,18 +57,38 @@ public class Cloaker {
     private static final Pattern PATTERN_DTD_BASIC = Pattern.compile(REGEX_DTD_BASIC);
     private static final Pattern PATTERN_CDATA = Pattern.compile(REGEX_CDATA);
 
-    public static boolean isContentCloaked(String content) {
-        return content.contains(COMMENT);
+    /**
+     * Returns the cloaked content of the specified XML file in the form of
+     * InputStream.
+     *
+     * @param sourceXmlPath The source XML path.
+     * @return The cloaked content in the form of InputStream.
+     * @throws IOException
+     * @since 1.0.0
+     */
+    public static InputStream getCloakedInputStream(Path sourceXmlPath) throws IOException {
+
+        String sourceXmlContent = new String(Files.readAllBytes(sourceXmlPath), StandardCharsets.UTF_8);
+        String cloakedXmlContent = getCloakedContent(sourceXmlContent);
+
+        return new ByteArrayInputStream(cloakedXmlContent.getBytes(StandardCharsets.UTF_8));
     }
 
-    public static String getCloakedContent(String content) {
+    /**
+     * Returns the cloaked variant of the specified XML content.
+     *
+     * @param sourceXmlContent The source XML content.
+     * @return The cloaked content.
+     * @since 1.0.0
+     */
+    public static String getCloakedContent(String sourceXmlContent) {
 
-        String cloakedContent = content;
+        String content = sourceXmlContent;
 
-        cloakedContent = cloakedContent + "<?" + COMMENT + "?>";
-        cloakedContent = cloakedContent.replace("xi:include", "xnclude");
+        content = content + "<?" + COMMENT + "?>";
+        content = content.replace("xi:include", "xnclude");
 
-        Matcher matcher = PATTERN_DTD_INTERNAL.matcher(cloakedContent);
+        Matcher matcher = PATTERN_DTD_INTERNAL.matcher(content);
 
         if (matcher.find()) {
 
@@ -55,57 +99,66 @@ public class Cloaker {
             dtd = dtd.replace(">", "xxGREATER_THANxx");
             dtd = dtd.replace("<", "xxLESS_THANxx");
 
-            cloakedContent = cloakedContent.replace(matcher.group(0), "<?" + dtd + "_END_SUBSET?>");
+            content = content.replace(matcher.group(0), "<?" + dtd + "_END_SUBSET?>");
 
         } else {
 
-            matcher = PATTERN_DTD_BASIC.matcher(cloakedContent);
+            matcher = PATTERN_DTD_BASIC.matcher(content);
 
             if (matcher.find()) {
-                cloakedContent = cloakedContent.replace(matcher.group(0), "<?" + matcher.group(1) + "_END_SUBSET?>");
+                content = content.replace(matcher.group(0), "<?" + matcher.group(1) + "_END_SUBSET?>");
             }
         }
 
-        matcher = PATTERN_CDATA.matcher(cloakedContent);
+        matcher = PATTERN_CDATA.matcher(content);
 
         while (matcher.find()) {
 
             String cdata = matcher.group(1);
             cdata = cdata.replace("&", "##AMP_CDATA_ENT##");
-            cloakedContent = cloakedContent.replace(matcher.group(1), cdata);
+            content = content.replace(matcher.group(1), cdata);
         }
 
-        cloakedContent = cloakedContent.replace("&", "##AMP_ENT##");
+        // cloak the rest of entities
+        content = content.replace("&", "##AMP_ENT##");
 
-        return cloakedContent;
+        return content;
     }
 
-    public static String getUncloakedContent(String content) {
+    /**
+     * Returns the uncloaked variant of the specified cloaked XML content.
+     *
+     * @param cloakedXmlContent The cloaked XML content.
+     * @return The uncloaked content.
+     * @since 1.0.0
+     */
+    public static String getUncloakedContent(String cloakedXmlContent) {
 
-        Map<String, String> replacementMap = new LinkedHashMap<>();
+        String content = cloakedXmlContent;
 
-        replacementMap.put("<?" + COMMENT + "?>", "\n");
-        replacementMap.put("##AMP_ENT##", "&");
-        replacementMap.put("##AMP_CDATA_ENT##", "&amp;");
-        replacementMap.put("xnclude", "xi:include");
-        replacementMap.put("xxLEFT_SQUARE_BRACKETxx", "[");
-        replacementMap.put("xxRIGHT_SQUARE_BRACKETxx", "]");
-        replacementMap.put("xxGREATER_THANxx", ">");
-        replacementMap.put("xxLESS_THANxx", "<");
-        replacementMap.put("_END_SUBSET?>", ">\n");
-        replacementMap.put("<?DOCTYPE", "\n<!DOCTYPE");
+        content = content.replace("<?" + COMMENT + "?>", "\n");
+        content = content.replace("##AMP_ENT##", "&");
+        content = content.replace("##AMP_CDATA_ENT##", "&amp;");
+        content = content.replace("xnclude", "xi:include");
+        content = content.replace("xxLEFT_SQUARE_BRACKETxx", "[");
+        content = content.replace("xxRIGHT_SQUARE_BRACKETxx", "]");
+        content = content.replace("xxGREATER_THANxx", ">");
+        content = content.replace("xxLESS_THANxx", "<");
+        content = content.replace("_END_SUBSET?>", ">\n");
+        content = content.replace("<?DOCTYPE", "\n<!DOCTYPE");
 
-        return getReplacedContent(content, replacementMap);
+        return content;
     }
 
-    private static String getReplacedContent(String content, Map<String, String> replacementMap) {
-
-        String replacedContent = content;
-
-        for (Entry<String, String> entry : replacementMap.entrySet()) {
-            replacedContent = replacedContent.replace(entry.getKey(), entry.getValue());
-        }
-
-        return replacedContent;
+    /**
+     * Returns true if the specified source XML content is cloaked.
+     *
+     * @param sourceXmlContent The source XML content.
+     * @return A boolean value true if the specified source XML content is
+     * cloaked.
+     * @since 1.0.0
+     */
+    public static boolean isContentCloaked(String sourceXmlContent) {
+        return sourceXmlContent.contains(COMMENT);
     }
 }
