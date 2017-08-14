@@ -86,7 +86,7 @@ public final class Cloaker {
         String content = sourceXmlContent;
 
         content = content + "<?" + COMMENT + "?>";
-        content = content.replace("xi:include", "xnclude");
+        content = content.replace("xi:include", "xxXINCLUDExx");
 
         Matcher matcher = PATTERN_DTD_INTERNAL.matcher(content);
 
@@ -139,7 +139,7 @@ public final class Cloaker {
         content = content.replace("<?" + COMMENT + "?>", "\n");
         content = content.replace("##AMP_ENT##", "&");
         content = content.replace("##AMP_CDATA_ENT##", "&amp;");
-        content = content.replace("xnclude", "xi:include");
+        content = content.replace("xxXINCLUDExx", "xi:include");
         content = content.replace("xxLEFT_SQUARE_BRACKETxx", "[");
         content = content.replace("xxRIGHT_SQUARE_BRACKETxx", "]");
         content = content.replace("xxGREATER_THANxx", ">");
